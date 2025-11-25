@@ -1,0 +1,618 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Mini PM Tool — Local Demo</title>
+<style>
+  :root{
+    --bg:#f6f7fb; --card:#fff; --text:#0b1220; --muted:#5b6b80; --accent:#2563eb; --danger:#ef4444;
+  }
+  [data-theme="dark"]{--bg:#0b1220;--card:#081224;--text:#eef6ff;--muted:#9fb0c9;--accent:#60a5fa;--danger:#f87171}
+  *{box-sizing:border-box;font-family:Inter,Segoe UI,Roboto,Arial}
+  body{margin:0;background:var(--bg);color:var(--text);padding:14px}
+  header{display:flex;gap:12px;align-items:center;margin-bottom:14px}
+  h1{margin:0;font-size:18px}
+  .btn{padding:8px 10px;border-radius:8px;border:0;background:var(--accent);color:white;cursor:pointer}
+  .btn.secondary{background:transparent;border:1px solid rgba(0,0,0,0.08);color:var(--text)}
+  .container{display:grid;grid-template-columns:260px 1fr 320px;gap:12px}
+  .card{background:var(--card);border-radius:10px;padding:12px;box-shadow:0 6px 18px rgba(2,6,23,0.06)}
+  label{display:block;font-size:12px;color:var(--muted);margin-top:8px}
+  input[type="text"], input[type="email"], input[type="password"], select, textarea {
+    width:100%;padding:8px;border-radius:8px;border:1px solid rgba(0,0,0,0.08);background:transparent;color:var(--text)
+  }
+  .small{font-size:12px;color:var(--muted)}
+  .project-pill{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:8px;cursor:pointer}
+  .project-pill.active{background:var(--accent);color:white}
+  .board{display:flex;gap:12px;overflow-x:auto;padding:8px;height:72vh}
+  .col{min-width:300px;background:linear-gradient(180deg,rgba(0,0,0,0.02),transparent);padding:8px;border-radius:8px}
+  .card-task{background:#fff;padding:8px;border-radius:8px;margin-bottom:8px;cursor:grab;box-shadow:0 2px 8px rgba(0,0,0,0.04)}
+  .meta{font-size:12px;color:var(--muted)}
+  .stack{display:flex;flex-direction:column;gap:8px}
+  .row{display:flex;gap:8px;align-items:center}
+  .toast{position:fixed;right:18px;bottom:18px;display:flex;flex-direction:column;gap:8px;z-index:9999}
+  .toast .t{background:var(--card);padding:10px;border-radius:8px;box-shadow:0 6px 18px rgba(2,6,23,0.06)}
+  .members{display:flex;gap:6px;flex-wrap:wrap}
+  .avatar{width:28px;height:28px;border-radius:999px;background:#c7d2fe;display:flex;align-items:center;justify-content:center;font-size:12px;color:#1e293b}
+  .search{display:flex;gap:8px;align-items:center}
+  .muted{color:var(--muted)}
+  textarea{min-height:80px}
+  footer{margin-top:12px;font-size:12px;color:var(--muted);text-align:center}
+  @media (max-width:980px){.container{grid-template-columns:1fr;}}
+</style>
+</head>
+<body data-theme="light">
+
+<header>
+  <h1>Mini PM Tool (local demo)</h1>
+  <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+    <button id="themeToggle" class="btn secondary">Toggle Theme</button>
+    <button id="exportBtn" class="btn secondary">Export JSON</button>
+    <input id="importFile" type="file" accept="application/json" style="display:none" />
+    <button id="importBtn" class="btn secondary">Import JSON</button>
+  </div>
+</header>
+
+<div class="container">
+  <!-- LEFT: Auth + Projects -->
+  <div class="card" id="leftPanel">
+    <div id="authArea"></div>
+    <hr />
+    <h3 style="margin:6px 0">Projects</h3>
+    <div class="stack" id="projectList" style="max-height:45vh;overflow:auto"></div>
+
+    <label>New project name</label>
+    <div style="display:flex;gap:8px">
+      <input id="newProjectName" type="text" placeholder="Project title" />
+      <button id="createProjectBtn" class="btn">Create</button>
+    </div>
+
+    <div style="height:8px"></div>
+    <label class="small">Search tasks</label>
+    <div class="search">
+      <input id="globalSearch" type="text" placeholder="title / assignee / tag" />
+      <select id="filterAssignee"><option value="">All</option></select>
+    </div>
+  </div>
+
+  <!-- CENTER: Board -->
+  <div class="card">
+    <div id="boardHeader" style="display:flex;align-items:center;justify-content:space-between">
+      <div>
+        <div id="boardTitle" style="font-weight:700">No project selected</div>
+        <div id="boardDesc" class="small muted">Select or create a project to begin</div>
+      </div>
+      <div class="row">
+        <button id="addColumnBtn" class="btn secondary">Add Column</button>
+        <button id="addTaskBtn" class="btn">New Task</button>
+      </div>
+    </div>
+
+    <div id="boardArea" class="board" ondragover="event.preventDefault()"></div>
+  </div>
+
+  <!-- RIGHT: Details / Notifications -->
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <h3 style="margin:0">Project Details</h3>
+      <div class="small muted" id="projectMembersCount"></div>
+    </div>
+
+    <div id="projectDetails" style="margin-top:8px"></div>
+
+    <hr />
+    <h4>Notifications</h4>
+    <div id="notifications" style="max-height:40vh;overflow:auto"></div>
+  </div>
+</div>
+
+<!-- Task modal (hidden) -->
+<div id="taskModal" style="display:none;position:fixed;left:50%;top:50%;transform:translate(-50%,-50%);z-index:999;min-width:360px">
+  <div class="card">
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <div><strong id="modalTitle">Task</strong><div class="small muted" id="modalMeta"></div></div>
+      <div><button id="closeModal" class="btn secondary">Close</button></div>
+    </div>
+    <hr />
+    <label>Title</label><input id="taskTitle" type="text" />
+    <label>Description</label><textarea id="taskDesc"></textarea>
+    <label>Assignee</label>
+    <select id="taskAssignee"><option value="">Unassigned</option></select>
+    <label>Due date</label><input id="taskDue" type="text" placeholder="YYYY-MM-DD" />
+    <div style="height:8px"></div>
+    <div style="display:flex;gap:8px">
+      <button id="saveTask" class="btn">Save</button>
+      <button id="deleteTask" class="btn secondary">Delete</button>
+    </div>
+    <hr />
+    <h4>Comments</h4>
+    <div id="commentsList" style="max-height:180px;overflow:auto"></div>
+    <label>Add comment</label><textarea id="commentText"></textarea>
+    <div style="display:flex;gap:8px;margin-top:8px">
+      <button id="addCommentBtn" class="btn">Post</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toastArea"></div>
+
+<footer>Demo stores everything in your browser (localStorage). Use Export/Import to move data between browsers or to a real backend.</footer>
+
+<script>
+/*
+ Mini PM Tool (front-end only)
+ - Data stored in localStorage under key "pm.data"
+ - Real-time cross-tab updates via BroadcastChannel ('pm-channel')
+ - Intent: demo & prototype; replace persistence functions with API calls to build a real backend
+*/
+
+/* -------------------------
+   Utilities & Persistence
+   ------------------------- */
+const STORAGE_KEY = 'pm.data.v1';
+const BC = ('BroadcastChannel' in window) ? new BroadcastChannel('pm-channel') : null;
+
+function uid(){ return Date.now().toString(36) + Math.random().toString(36).slice(2,6); }
+function nowISO(){ return new Date().toISOString(); }
+
+function loadData(){
+  const raw = localStorage.getItem(STORAGE_KEY);
+  if(!raw) return defaultData();
+  try { return JSON.parse(raw); } catch(e){ console.warn('load failed', e); return defaultData(); }
+}
+function saveData(){
+  localStorage.setItem(STORAGE_KEY, JSON.stringify(DATA));
+  // broadcast to other tabs
+  if(BC) BC.postMessage({type:'sync', payload: {ts: Date.now()}});
+}
+function defaultData(){
+  return {
+    users: [ // sample demo users
+      { id:'u_alice', name:'Alice', email:'alice@local', password:'alice' },
+      { id:'u_bob', name:'Bob', email:'bob@local', password:'bob' }
+    ],
+    projects: [], // {id, title, description, members: [userIds], columns: [{id,title}], createdBy, createdAt}
+    tasks: [], // {id, projectId, title, description, columnId, assigneeId, createdAt}
+    comments: [], // {id, taskId, authorId, text, createdAt}
+    notifications: [] // {id, userId, text, read, createdAt}
+  };
+}
+
+/* -------------------------
+   App State
+   ------------------------- */
+let DATA = loadData();
+let CURRENT_USER = JSON.parse(localStorage.getItem('pm.currentUser') || 'null');
+let SELECTED_PROJECT = null;
+let SELECTED_TASK = null;
+
+/* -------------------------
+   BroadcastChannel: sync across tabs
+   ------------------------- */
+if(BC){
+  BC.onmessage = (ev) => {
+    if(ev.data?.type === 'sync'){
+      // reload data from storage and refresh UI
+      DATA = loadData();
+      renderAll();
+      toast('Sync from other tab');
+    }
+  };
+}
+
+/* -------------------------
+   Helpers: find models
+   ------------------------- */
+function findUser(id){ return DATA.users.find(u=>u.id===id); }
+function findProject(id){ return DATA.projects.find(p=>p.id===id); }
+function findTasksForProject(pid){ return DATA.tasks.filter(t=>t.projectId===pid); }
+function findCommentsForTask(tid){ return DATA.comments.filter(c=>c.taskId===tid).sort((a,b)=>a.createdAt.localeCompare(b.createdAt)); }
+
+/* -------------------------
+   Notifications
+   ------------------------- */
+function pushNotification(userId, text){
+  const n = { id: uid(), userId, text, read:false, createdAt: nowISO() };
+  DATA.notifications.unshift(n);
+  saveData();
+  renderNotifications();
+}
+
+/* Simple toast */
+function toast(msg, timeout=2800){
+  const area = document.getElementById('toastArea');
+  const div = document.createElement('div'); div.className='t'; div.textContent = msg;
+  area.appendChild(div); setTimeout(()=> { div.remove(); }, timeout);
+}
+
+/* -------------------------
+   Auth UI & logic (local)
+   ------------------------- */
+function renderAuthArea(){
+  const a = document.getElementById('authArea'); a.innerHTML='';
+  if(!CURRENT_USER){
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `
+      <h3>Sign in / Register</h3>
+      <label>Email</label><input id="loginEmail" type="email" />
+      <label>Password</label><input id="loginPass" type="password" />
+      <div style="display:flex;gap:8px;margin-top:8px">
+        <button id="loginBtn" class="btn">Login</button>
+        <button id="registerBtn" class="btn secondary">Register</button>
+      </div>
+      <div class="small muted" style="margin-top:8px">Use demo accounts: alice@local / alice  or  bob@local / bob</div>
+    `;
+    a.appendChild(wrap);
+    document.getElementById('loginBtn').onclick = doLogin;
+    document.getElementById('registerBtn').onclick = doRegister;
+  } else {
+    const wrap = document.createElement('div');
+    wrap.innerHTML = `
+      <div style="display:flex;gap:8px;align-items:center">
+        <div class="avatar">${CURRENT_USER.name.slice(0,1).toUpperCase()}</div>
+        <div>
+          <div style="font-weight:700">${CURRENT_USER.name}</div>
+          <div class="small muted">${CURRENT_USER.email}</div>
+        </div>
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px">
+        <button id="logoutBtn" class="btn secondary">Logout</button>
+        <button id="whoami" class="btn secondary">My Profile</button>
+      </div>
+    `;
+    a.appendChild(wrap);
+    document.getElementById('logoutBtn').onclick = ()=> { CURRENT_USER=null; localStorage.removeItem('pm.currentUser'); renderAll(); };
+    document.getElementById('whoami').onclick = ()=> alert(JSON.stringify(CURRENT_USER,null,2));
+  }
+}
+function doLogin(){
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass = document.getElementById('loginPass').value.trim();
+  const user = DATA.users.find(u=>u.email===email && u.password===pass);
+  if(!user) return alert('Invalid credentials (demo: alice@local / alice)');
+  CURRENT_USER = user;
+  localStorage.setItem('pm.currentUser', JSON.stringify(user));
+  toast('Logged in as ' + user.name);
+  renderAll();
+}
+function doRegister(){
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass = document.getElementById('loginPass').value.trim();
+  if(!email || !pass) return alert('Provide email & password');
+  if(DATA.users.some(u=>u.email===email)) return alert('Email already exists');
+  const u = { id: uid(), name: email.split('@')[0], email, password: pass };
+  DATA.users.push(u); saveData();
+  CURRENT_USER = u; localStorage.setItem('pm.currentUser', JSON.stringify(u));
+  toast('Registered & logged in as ' + u.name);
+  renderAll();
+}
+
+/* -------------------------
+   Projects UI & logic
+   ------------------------- */
+document.getElementById('createProjectBtn').onclick = ()=>{
+  const name = document.getElementById('newProjectName').value.trim();
+  if(!CURRENT_USER) return alert('Login to create project');
+  if(!name) return alert('Enter project name');
+  const p = { id: uid(), title: name, description:'', members: [CURRENT_USER.id], columns: [{id:'todo', title:'To Do'},{id:'inprogress', title:'In Progress'},{id:'done', title:'Done'}], createdBy: CURRENT_USER.id, createdAt: nowISO() };
+  DATA.projects.push(p); saveData();
+  document.getElementById('newProjectName').value='';
+  SELECTED_PROJECT = p.id;
+  toast('Project created');
+  renderAll();
+};
+
+function renderProjectList(){
+  const list = document.getElementById('projectList'); list.innerHTML='';
+  DATA.projects.forEach(p=>{
+    const div = document.createElement('div'); div.className='project-pill' + (p.id===SELECTED_PROJECT ? ' active':'');
+    div.innerHTML = `<div style="flex:1">${p.title}</div><div class="small muted">${p.members.length} members</div>`;
+    div.onclick = ()=> { SELECTED_PROJECT = p.id; renderAll(); };
+    list.appendChild(div);
+  });
+}
+
+/* -------------------------
+   Board rendering & tasks
+   ------------------------- */
+document.getElementById('addColumnBtn').onclick = ()=>{
+  if(!SELECTED_PROJECT) return alert('Select project');
+  const name = prompt('Column name');
+  if(!name) return;
+  const p = findProject(SELECTED_PROJECT);
+  p.columns.push({ id: uid(), title: name });
+  saveData(); renderAll();
+};
+
+document.getElementById('addTaskBtn').onclick = ()=>{
+  if(!CURRENT_USER) return alert('Login to add tasks');
+  if(!SELECTED_PROJECT) return alert('Select project');
+  const title = prompt('Task title');
+  if(!title) return;
+  const p = findProject(SELECTED_PROJECT);
+  const t = { id: uid(), projectId: p.id, title, description:'', columnId: p.columns[0].id, assigneeId:'', createdAt: nowISO() };
+  DATA.tasks.push(t); saveData();
+  toast('Task created');
+  renderAll();
+  pushNotificationToProjectMembers(p.id, `${CURRENT_USER.name} created task "${title}"`);
+};
+
+function pushNotificationToProjectMembers(projectId, text){
+  const p = findProject(projectId);
+  if(!p) return;
+  p.members.forEach(uid=> pushNotification(uid, text));
+}
+
+/* Drag & Drop: when a card is dropped onto a column, update its columnId */
+function onDropToColumn(e, columnId){
+  e.preventDefault();
+  const tid = e.dataTransfer.getData('text/taskId');
+  const t = DATA.tasks.find(x=>x.id===tid);
+  if(!t) return;
+  t.columnId = columnId; saveData();
+  const p = findProject(t.projectId);
+  pushNotificationToProjectMembers(p.id, `${CURRENT_USER ? CURRENT_USER.name : 'Someone'} moved task "${t.title}" to "${columnId}"`);
+  renderAll();
+}
+
+/* Render board */
+function renderBoard(){
+  const area = document.getElementById('boardArea'); area.innerHTML='';
+  if(!SELECTED_PROJECT){ area.innerHTML = '<div class="muted small" style="padding:12px">No project selected</div>'; document.getElementById('boardTitle').textContent='No project selected'; document.getElementById('boardDesc').textContent='Select or create a project to begin'; return; }
+  const p = findProject(SELECTED_PROJECT);
+  document.getElementById('boardTitle').textContent = p.title;
+  document.getElementById('boardDesc').textContent = 'Members: ' + p.members.map(m=>findUser(m)?.name||'unknown').join(', ');
+  p.columns.forEach(col=>{
+    const colDiv = document.createElement('div'); colDiv.className='col';
+    colDiv.ondragover = (ev)=> ev.preventDefault();
+    colDiv.ondrop = (ev)=> onDropToColumn(ev, col.id);
+    colDiv.innerHTML = `<div style="display:flex;justify-content:space-between;align-items:center"><strong>${col.title}</strong><div><button class="btn secondary" data-col-id="${col.id}">⋯</button></div></div><div style="height:8px"></div>`;
+    // tasks for this column & project (with search filter)
+    let tasks = DATA.tasks.filter(t=>t.projectId===p.id && t.columnId===col.id);
+    const q = (document.getElementById('globalSearch').value||'').toLowerCase();
+    const assigneeFilter = document.getElementById('filterAssignee').value;
+    if(q) tasks = tasks.filter(t => (t.title||'').toLowerCase().includes(q) || (t.description||'').toLowerCase().includes(q));
+    if(assigneeFilter) tasks = tasks.filter(t => t.assigneeId === assigneeFilter);
+
+    tasks.forEach(t=>{
+      const div = document.createElement('div'); div.className='card-task'; div.draggable = true;
+      div.ondragstart = (ev)=> ev.dataTransfer.setData('text/taskId', t.id);
+      div.onclick = ()=> openTaskModal(t.id);
+      const assigneeName = t.assigneeId ? (findUser(t.assigneeId)?.name || 'unknown') : 'Unassigned';
+      div.innerHTML = `<div style="font-weight:600">${t.title}</div><div class="meta">${assigneeName} • ${t.createdAt.slice(0,10)}</div>`;
+      colDiv.appendChild(div);
+    });
+
+    area.appendChild(colDiv);
+  });
+}
+
+/* -------------------------
+   Task Modal (view/edit/comment)
+   ------------------------- */
+function openTaskModal(taskId){
+  const m = document.getElementById('taskModal'); m.style.display='block';
+  const t = DATA.tasks.find(x=>x.id===taskId);
+  if(!t) return;
+  SELECTED_TASK = taskId;
+  document.getElementById('modalTitle').textContent = t.title;
+  document.getElementById('modalMeta').textContent = 'Created: ' + t.createdAt.slice(0,10);
+  document.getElementById('taskTitle').value = t.title;
+  document.getElementById('taskDesc').value = t.description || '';
+  document.getElementById('taskDue').value = t.dueDate || '';
+  renderAssigneeOptions();
+  document.getElementById('taskAssignee').value = t.assigneeId || '';
+  renderComments();
+}
+document.getElementById('closeModal').onclick = ()=> { document.getElementById('taskModal').style.display='none'; SELECTED_TASK=null; };
+
+document.getElementById('saveTask').onclick = ()=>{
+  if(!SELECTED_TASK) return;
+  const t = DATA.tasks.find(x=>x.id===SELECTED_TASK);
+  t.title = document.getElementById('taskTitle').value.trim();
+  t.description = document.getElementById('taskDesc').value.trim();
+  t.assigneeId = document.getElementById('taskAssignee').value || '';
+  t.dueDate = document.getElementById('taskDue').value || '';
+  saveData();
+  const p = findProject(t.projectId);
+  pushNotificationToProjectMembers(p.id, `${CURRENT_USER ? CURRENT_USER.name : 'Someone'} updated task "${t.title}"`);
+  renderAll();
+  toast('Saved');
+};
+
+document.getElementById('deleteTask').onclick = ()=>{
+  if(!SELECTED_TASK) return;
+  if(!confirm('Delete this task?')) return;
+  const t = DATA.tasks.find(x=>x.id===SELECTED_TASK);
+  DATA.tasks = DATA.tasks.filter(x=>x.id!==SELECTED_TASK);
+  DATA.comments = DATA.comments.filter(c=>c.taskId!==SELECTED_TASK);
+  saveData();
+  pushNotificationToProjectMembers(t.projectId, `${CURRENT_USER ? CURRENT_USER.name : 'Someone'} deleted task "${t.title}"`);
+  document.getElementById('taskModal').style.display='none'; SELECTED_TASK=null;
+  renderAll();
+};
+
+function renderAssigneeOptions(){
+  const sel = document.getElementById('taskAssignee'); sel.innerHTML = '<option value="">Unassigned</option>';
+  if(!SELECTED_PROJECT) return;
+  const p = findProject(SELECTED_PROJECT);
+  p.members.forEach(uid=>{
+    const u = findUser(uid);
+    const o = document.createElement('option'); o.value = uid; o.textContent = u ? u.name + ' ('+u.email+')' : uid; sel.appendChild(o);
+  });
+}
+
+/* Comments */
+function renderComments(){
+  const list = document.getElementById('commentsList'); list.innerHTML='';
+  if(!SELECTED_TASK) return;
+  const comments = findCommentsForTask(SELECTED_TASK);
+  comments.forEach(c=>{
+    const author = findUser(c.authorId);
+    const div = document.createElement('div'); div.style.padding='8px'; div.style.borderBottom='1px solid rgba(0,0,0,0.04)';
+    div.innerHTML = `<div style="font-weight:600">${author?author.name:'?'}</div><div class="small muted">${c.createdAt.slice(0,19).replace('T',' ')}</div><div style="margin-top:6px">${escapeHTML(c.text)}</div>`;
+    list.appendChild(div);
+  });
+}
+document.getElementById('addCommentBtn').onclick = ()=>{
+  if(!SELECTED_TASK) return alert('Open a task first');
+  if(!CURRENT_USER) return alert('Login to comment');
+  const text = document.getElementById('commentText').value.trim();
+  if(!text) return;
+  const c = { id: uid(), taskId: SELECTED_TASK, authorId: CURRENT_USER.id, text, createdAt: nowISO() };
+  DATA.comments.push(c); saveData();
+  document.getElementById('commentText').value='';
+  renderComments();
+  // notify project members
+  const t = DATA.tasks.find(x=>x.id===SELECTED_TASK);
+  pushNotificationToProjectMembers(t.projectId, `${CURRENT_USER.name} commented on "${t.title}"`);
+  renderAll();
+};
+
+/* -------------------------
+   Project Details / Members management
+   ------------------------- */
+function renderProjectDetails(){
+  const container = document.getElementById('projectDetails'); container.innerHTML='';
+  if(!SELECTED_PROJECT){ container.innerHTML='<div class="small muted">No project selected</div>'; document.getElementById('projectMembersCount').textContent=''; return; }
+  const p = findProject(SELECTED_PROJECT);
+  const html = document.createElement('div');
+  html.innerHTML = `<label>Title</label><input id="projTitle" type="text" value="${escapeHTML(p.title)}" />
+    <label>Description</label><textarea id="projDesc">${escapeHTML(p.description||'')}</textarea>
+    <label>Add member by email</label><input id="projAddEmail" type="email" placeholder="member@example.com" />
+    <div style="display:flex;gap:8px;margin-top:8px"><button id="saveProjBtn" class="btn">Save</button><button id="addMemberBtn" class="btn secondary">Add member</button></div>
+    <div style="height:8px"></div>
+    <div><strong>Members</strong></div>
+    <div class="members" id="projMembersList" style="margin-top:8px"></div>
+  `;
+  container.appendChild(html);
+
+  document.getElementById('saveProjBtn').onclick = ()=>{
+    p.title = document.getElementById('projTitle').value.trim();
+    p.description = document.getElementById('projDesc').value.trim();
+    saveData(); renderAll(); toast('Project updated');
+  };
+  document.getElementById('addMemberBtn').onclick = ()=>{
+    const email = document.getElementById('projAddEmail').value.trim();
+    if(!email) return alert('Enter email');
+    const user = DATA.users.find(u=>u.email===email);
+    if(!user) return alert('User not found. Ask them to register first or add them using export/import.');
+    if(p.members.includes(user.id)) return alert('Member already added');
+    p.members.push(user.id); saveData(); renderAll(); pushNotification(user.id, `You were added to project "${p.title}"`); toast('Member added');
+  };
+  // render members
+  const listDiv = document.getElementById('projMembersList'); listDiv.innerHTML='';
+  p.members.forEach(uid=>{
+    const u = findUser(uid);
+    const d = document.createElement('div'); d.style.display='flex'; d.style.alignItems='center'; d.style.gap='8px';
+    d.innerHTML = `<div class="avatar">${u?u.name.slice(0,1).toUpperCase():'?'}</div><div style="flex:1"><div style="font-weight:600">${u?u.name:'?'}</div><div class="small muted">${u?u.email:''}</div></div>`;
+    const rem = document.createElement('button'); rem.className='btn secondary'; rem.textContent='Remove';
+    rem.onclick = ()=>{
+      if(!confirm('Remove member?')) return;
+      p.members = p.members.filter(x=>x!==uid);
+      saveData(); renderAll();
+    };
+    d.appendChild(rem);
+    listDiv.appendChild(d);
+  });
+  document.getElementById('projectMembersCount').textContent = p.members.length + ' members';
+}
+
+/* -------------------------
+   Notifications rendering
+   ------------------------- */
+function renderNotifications(){
+  const el = document.getElementById('notifications'); el.innerHTML='';
+  if(!CURRENT_USER) { el.innerHTML='<div class="small muted">Login to see notifications</div>'; return; }
+  const list = DATA.notifications.filter(n => n.userId === CURRENT_USER.id).sort((a,b)=>b.createdAt.localeCompare(a.createdAt));
+  if(list.length===0) el.innerHTML = '<div class="small muted">No notifications yet</div>';
+  list.forEach(n=>{
+    const d = document.createElement('div'); d.style.padding='8px'; d.style.borderBottom='1px solid rgba(0,0,0,0.04)';
+    d.innerHTML = `<div class="small muted">${n.createdAt.slice(0,19).replace('T',' ')}</div><div>${escapeHTML(n.text)}</div>`;
+    el.appendChild(d);
+  });
+}
+
+/* -------------------------
+   Utility: escapeHTML
+   ------------------------- */
+function escapeHTML(s=''){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+/* -------------------------
+   Export / Import
+   ------------------------- */
+document.getElementById('exportBtn').onclick = ()=>{
+  const blob = new Blob([JSON.stringify(DATA,null,2)], {type:'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href=url; a.download = 'pm-data.json'; a.click(); URL.revokeObjectURL(url);
+};
+
+document.getElementById('importBtn').onclick = ()=> document.getElementById('importFile').click();
+document.getElementById('importFile').onchange = (ev)=>{
+  const file = ev.target.files[0]; if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ()=> {
+    try {
+      const obj = JSON.parse(reader.result);
+      if(!confirm('Import will replace current local data. Continue?')) return;
+      DATA = obj; saveData(); renderAll(); toast('Imported');
+    } catch(e){ alert('Invalid file'); }
+  };
+  reader.readAsText(file);
+};
+
+/* -------------------------
+   Helpers: update UI controls like assignee filter
+   ------------------------- */
+function renderAssigneeFilter(){
+  const sel = document.getElementById('filterAssignee'); sel.innerHTML = '<option value="">All</option>';
+  DATA.users.forEach(u => { const o = document.createElement('option'); o.value=u.id; o.textContent = u.name + ' ('+u.email+')'; sel.appendChild(o); });
+}
+
+/* Hook search & filter */
+document.getElementById('globalSearch').oninput = ()=> renderBoard();
+document.getElementById('filterAssignee').onchange = ()=> renderBoard();
+
+/* Theme toggle */
+document.getElementById('themeToggle').onclick = ()=>{
+  const root = document.body;
+  if(root.getAttribute('data-theme')==='dark') root.setAttribute('data-theme','light'); else root.setAttribute('data-theme','dark');
+};
+
+/* Escape for display */
+function renderAll(){
+  renderAuthArea();
+  renderProjectList();
+  renderBoard();
+  renderProjectDetails();
+  renderNotifications();
+  renderAssigneeFilter();
+}
+renderAll();
+
+/* -------------------------
+   Utilities for multi-tab demo: pre-populate one sample project (if none)
+   ------------------------- */
+if(DATA.projects.length===0){
+  // create sample project with sample user
+  const alice = DATA.users[0];
+  const bob = DATA.users[1];
+  const p = { id: uid(), title: 'Demo Project', description: 'A sample board', members: [alice.id,bob.id], columns: [{id:'todo',title:'To Do'},{id:'inprogress',title:'In Progress'},{id:'done',title:'Done'}], createdBy: alice.id, createdAt: nowISO() };
+  DATA.projects.push(p);
+  DATA.tasks.push({id:uid(), projectId:p.id, title:'Welcome task', description:'Click to open and comment', columnId:'todo', assigneeId: alice.id, createdAt: nowISO()});
+  saveData();
+  renderAll();
+  toast('Demo project created');
+}
+
+/* -------------------------
+   Notes in UI (not code) for moving to a real backend:
+   - Replace loadData/saveData with API calls (fetch/axios) to a server (Node/Express + DB).
+   - Replace BroadcastChannel with WebSocket (Socket.IO) for real-time multi-user collaboration.
+   - Replace current local auth with JWT + secure password hashing on server (bcrypt).
+   - Store files/attachments in cloud storage (S3 / Firebase Storage).
+-------------------------- */
+
+</script>
+</body>
+</html>
